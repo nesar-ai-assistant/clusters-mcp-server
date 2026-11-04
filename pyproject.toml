@@ -26,6 +26,7 @@ dev = ["pytest", "anyio", "ruff", "colossus"]  # colossus: cross-check of the HM
 [tool.mcp-server]
 name = "Galaxy Cluster Catalogs MCP Server"
 skill_prefix = "clusters"
+port = 8014
 instructions_file = "mcp_server/INSTRUCTIONS.md"
 tool_modules = [
     "tools.meta",
