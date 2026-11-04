@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "clusters": {
+      "command": "python",
+      "args": ["-m", "mcp_server", "--transport", "stdio"]
+    }
+  }
+}

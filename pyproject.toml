@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clusters-mcp-server"
+version = "0.1.0"
+description = "MCP server for galaxy-cluster catalogues (Planck PSZ2, SPT-SZ/SPTpol/SPT-3G, ACT DR6, eROSITA eRASS1): harmonised fetch, M500-z and sky plots, crossmatch, mass calibration, LCDM count predictions"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.27,<2",
+    "pydantic>=2,<3",
+    "numpy",
+    "scipy",
+    "matplotlib>=3.8",
+    "astropy>=6",
+    "pandas>=2",
+    "cryptography<44",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "anyio", "ruff", "colossus"]  # colossus: cross-check of the HMF kernel in tests
+# hpc = ["hep-genesis[iri]"]  # server-side dispatch: pip install -e <hep-genesis-agent>/backend[iri]
+
+[tool.mcp-server]
+name = "Galaxy Cluster Catalogs MCP Server"
+skill_prefix = "clusters"
+instructions_file = "mcp_server/INSTRUCTIONS.md"
+tool_modules = [
+    "tools.meta",
+    "tools.catalogs",
+    "tools.lcdm",
+    "mcp_server.dispatch",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mcp_server*", "tools*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["network: needs internet (deselect with -m 'not network')"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501", "B008"]
