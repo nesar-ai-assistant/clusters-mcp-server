@@ -13,7 +13,7 @@ from typing import Annotated
 
 from pydantic import Field, validate_call
 
-from ..common import REPO_ROOT, ArtifactResult, ok
+from ..common import REPO_ROOT, DATA_KINDS, ArtifactResult, ok
 from .skills import skill_index, skill_text
 
 _CFG = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["mcp-server"]
@@ -25,17 +25,30 @@ def _datasets() -> dict:
     return DATASETS
 
 
-def _list_datasets() -> ArtifactResult:
+def _list_datasets(
+    kind: Annotated[str | None, Field(description="Only datasets offering this kind of product: 'catalog', "
+                                      "'summary_statistic' or 'published_result'. null = all.")] = None,
+) -> ArtifactResult:
     """List the public datasets this server exposes. Call this first.
 
-    Each entry: survey/release, what products are available (summary
-    statistics, covariances, chains, catalogs), where the data comes from
-    (bundled in the repo vs downloaded on first use, with the source URL),
-    the citation, and which tools use it.
+    Products are grouped as catalogs (object-level data), summary statistics
+    (measurements with covariance) and published results (chains / parameter
+    constraints, for comparison only). Build analyses on catalogs and summary
+    statistics. Each entry also gives access (bundled vs downloaded on first
+    use) and which tools read it.
     """
     ds = _datasets()
-    brief = {k: {kk: v.get(kk) for kk in ("title", "products", "access", "tools")} for k, v in ds.items()}
-    return ok(f"{len(ds)} datasets. Use describe_{PREFIX}_dataset for details.", datasets=brief)
+    kinds = ("catalog", "summary_statistic", "published_result")
+    if kind is not None and kind not in kinds:
+        return ok(f"Unknown kind {kind!r}; use one of {kinds}.", datasets={})
+    brief = {k: {kk: v.get(kk) for kk in ("title", "products", "access", "tools")}
+             for k, v in ds.items() if kind is None or v.get("products", {}).get(kind)}
+    counts = {t: sum(1 for v in ds.values() if v.get("products", {}).get(t)) for t in kinds}
+    return ok(f"{len(brief)} datasets. With catalogs / summary statistics / published results: "
+              f"{counts['catalog']}/{counts['summary_statistic']}/{counts['published_result']}. "
+              "Published results are for comparison only. "
+              f"Use describe_{PREFIX}_dataset for details.",
+              datasets=brief, kinds={k: DATA_KINDS[k] for k in kinds}, counts=counts)
 
 
 def _describe_dataset(
@@ -80,5 +93,8 @@ for _name, _fn in _EXPORTS.items():
     _fn = validate_call(_fn)
     _fn.__name__ = _fn.__qualname__ = _name
     globals()[_name] = _fn
+
+for _name, _fn in list(_EXPORTS.items()):
+    globals()[_name].data_kind = "meta"
 
 __all__ = list(_EXPORTS)  # noqa: PLE0604 - names depend on skill_prefix

@@ -7,6 +7,8 @@ Conventions (identical across the cosmo-*-mcp-server family):
 - remote data is downloaded on first use into the data cache
   (``$COSMO_MCP_DATA`` or ``~/.cache/cosmo-mcp/<server>``); small canonical
   tables may be bundled in ``data/`` and are always tried first
+- every science tool declares the kind of data it works on with ``@data_kind(...)``
+  (catalog / summary_statistic / published_result); published results are stamped comparison-only
 - heavy tools set ``fn.weight = "heavy"`` (serialized, heartbeated, HPC
   dispatchable); default weight is "light"
 """
@@ -42,6 +44,48 @@ class ArtifactResult(BaseModel):
 def ok(message: str, files: list | None = None, **metadata) -> ArtifactResult:
     return ArtifactResult(status="success", files=[str(f) for f in (files or [])],
                           message=message, metadata=metadata)
+
+
+# ---------------------------------------------------------------- data kinds
+DATA_KINDS: dict = {
+    "catalog": "object-level data: catalogs, photometry, light curves, shear catalogs, maps",
+    "summary_statistic": "measurements reduced from catalogs/maps, with covariance: correlation functions, "
+                         "power spectra / bandpowers, BAO distances, Hubble diagrams, binned counts, n(z), "
+                         "selection functions",
+    "published_result": "published inference products: posterior chains, parameter constraints, best-fit "
+                        "theory; for comparison only, never an analysis input",
+    "meta": "discovery / skills",
+}
+COMPARISON_ONLY_NOTICE = ("Published inference product, for comparison only: compare it with your own analysis "
+                          "of catalogs / summary statistics; do not feed it into fits as a measurement, and "
+                          "label it as a published result in reports.")
+
+
+def data_kind(kind):
+    """Declare what kind of data a tool works on (put ABOVE @validate_call):
+    "catalog", "summary_statistic", "published_result" or "meta".
+
+    Sets ``fn.data_kind``; stamps ``metadata["data_kind"]`` on results, and
+    published-result tools also get ``metadata["comparison_only"]``.
+    """
+    if kind not in DATA_KINDS:
+        raise ValueError(f"data_kind must be one of {list(DATA_KINDS)}")
+
+    def deco(fn):
+        import functools
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            res = fn(*args, **kwargs)
+            if isinstance(res, ArtifactResult):
+                res.metadata.setdefault("data_kind", kind)
+                if kind == "published_result":
+                    res.metadata.setdefault("comparison_only", COMPARISON_ONLY_NOTICE)
+            return res
+
+        wrapper.data_kind = kind
+        return wrapper
+    return deco
 
 
 # ---------------------------------------------------------------- caching

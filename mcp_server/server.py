@@ -265,7 +265,11 @@ def create_server(*, host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
             if not inspect.iscoroutinefunction(tool_function):
                 # heavy / dispatchable / light: each class serialized, all off the loop
                 tool_function = offload_heavy(tool_function, getattr(tool_function, "weight", "light"))
-            mcp.tool()(tool_function)
+            if getattr(tool_function, "data_kind", None) == "published_result":
+                mcp.tool(description="[Published result - for comparison only] "
+                         + inspect.cleandoc(tool_function.__doc__ or ""))(tool_function)
+            else:
+                mcp.tool()(tool_function)
 
     register_skill_prompts(mcp)
     return mcp

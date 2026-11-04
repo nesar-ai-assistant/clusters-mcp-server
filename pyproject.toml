@@ -31,6 +31,7 @@ instructions_file = "mcp_server/INSTRUCTIONS.md"
 tool_modules = [
     "tools.meta",
     "tools.catalogs",
+    "tools.selection",
     "tools.lcdm",
     "mcp_server.dispatch",
 ]

@@ -1,6 +1,6 @@
 ---
 name: clusters-tour
-description: Five-minute all-local tour of the cluster server - fetch Planck PSZ2 + SPT-SZ (bundled) and ACT DR6 / eRASS1 (download), M500-z overlay, sky map, N(z) counts, one crossmatch + mass calibration, one LCDM count prediction; one call per tool family with expected numbers
+description: Five-minute all-local tour of the cluster server - fetch catalogues, M500-z overlay, sky map, counts, crossmatch, mass calibration, selection functions, WL profiles, LCDM prediction; one call per tool family with expected numbers
 ---
 
 # Galaxy-cluster catalogues tour
@@ -24,29 +24,25 @@ ACT DR6 (26 MB) and eRASS1 (24 MB .tgz) download on first use and are cached.
    | spt3g_5yr (optional) | 8892 | 7191 | 1.66e14 |
 
    If a total differs, the file changed upstream: stop and report.
-3. **M500-z plane**: `plot_mass_redshift(catalogs=[all CSVs])`. Medians:
-   - eRASS1 at z ≈ 0.30 (low mass, low z: flux limited)
-   - PSZ2 at z ≈ 0.22 (most massive)
-   - SPT-SZ / ACT at z ≈ 0.55-0.58 (flat in mass to high z)
-   - SPT-3G at z ≈ 0.73 (deepest)
-4. **Sky map**: `plot_cluster_sky_map(catalogs=[...], coords="equatorial")`. Footprints:
-   - SPT: southern 20h-7h, Dec < -40°
-   - ACT: wide band −60° < Dec < +20°
-   - eRASS1: western Galactic half
-   - Planck: all-sky outside the Galactic plane
+3. **M500-z plane**: `plot_mass_redshift(catalogs=[all CSVs])`.
+4. **Sky map**: `plot_cluster_sky_map(catalogs=[...], coords="equatorial")`.
 5. **Counts**: `compute_cluster_counts(catalogs=[spt_sz CSV, act_dr6 CSV], m500_min=4)`.
-6. **Crossmatch + mass calibration**:
-   - Run `crossmatch_catalogs(catalog_a=<act_dr6 CSV>, catalog_b=<psz2 CSV>, radius_arcmin=3)`.
-     Expect ~386 matches.
-   - Then run `compare_mass_calibration(matched_csv)`. Expect a median M_Planck/M_ACT of
-     0.80 ± 0.02 with ln-scatter ~0.34. This is the Planck hydrostatic bias, 1−b ≈ 0.8.
-7. **LCDM counts**:
-   - Call `predict_cluster_counts_lcdm(m500_min=5, z_edges=[0.25,0.4,0.55,0.7,0.85,1.0,1.2,1.5], observed_catalog="spt_sz")`.
-   - Expect ~138 predicted vs 105 observed (obs/pred ≈ 0.76) at sigma8 = 0.8.
-   - Then call `plot_counts_vs_prediction([<json>])`.
-   - Each prediction takes under a second locally.
-8. **Report**: catalogue counts; the M500-z picture (SZ vs X-ray selection); the
-   Planck/ACT mass ratio; obs/pred for SPT-SZ; the list of files.
+   Output includes Poisson errors (N_poisson_err column).
+6. **Selection functions**:
+   - `fetch_cluster_selection_function(dataset="psz2")`: completeness C(Y500, θ500). Expect 12 SNR thresholds, 32×30 grid.
+   - `fetch_cluster_selection_function(dataset="spt_sz")`: 19 fields, total ~2459 deg².
+   - `fetch_cluster_selection_function(dataset="act_dr6")`: 293 tiles, total ~12590 deg².
+   - `plot_completeness(dataset="psz2")`: heatmap at q≥6.
+7. **WL shear profiles**: `fetch_cluster_wl_profiles(dataset="spt_sz")`.
+   Expect 19 Megacam tangential shear profiles (g_t vs r).
+8. **Crossmatch + mass calibration**:
+   - `crossmatch_catalogs(catalog_a=<act_dr6 CSV>, catalog_b=<psz2 CSV>, radius_arcmin=3)` → ~386 matches.
+   - `compare_mass_calibration(matched_csv)` → median M_Planck/M_ACT ≈ 0.80 ± 0.02.
+9. **LCDM counts**:
+   - `predict_cluster_counts_lcdm(m500_min=5, z_edges=[0.25,0.4,0.55,0.7,0.85,1.0,1.2,1.5], observed_catalog="spt_sz")`.
+   - Expect ~138 predicted vs 105 observed at σ8=0.8; best σ8 ≈ 0.78.
+   - `plot_counts_vs_prediction([<json>])`.
+10. **Report**: catalogue counts; M500-z picture; mass ratio; obs/pred; completeness; WL profiles.
 
 For more depth, use `multi-survey-mass-redshift`, `sz-xray-crossmatch` and
 `cluster-counts-vs-lcdm`. Heavy prediction scans can be dispatched: see `hpc-dispatch-handoff`.

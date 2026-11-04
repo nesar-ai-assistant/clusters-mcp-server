@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 import numpy as np
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, mpl, ok, param_slug, resolve_outdir, save_fig
+from ..common import ArtifactResult, data_kind, mpl, ok, param_slug, resolve_outdir, save_fig
 from ..registry import DATASETS
 from . import kernels
 
@@ -26,6 +26,7 @@ def _observed(catalog: str, z_edges, m_min):
     return n.astype(int).tolist(), str(df["survey"].iloc[0]) if len(df) else catalog, ds
 
 
+@data_kind("summary_statistic")
 @validate_call
 def predict_cluster_counts_lcdm(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the prediction CSV/JSON.")],
@@ -106,6 +107,7 @@ def predict_cluster_counts_lcdm(
 predict_cluster_counts_lcdm.weight = "heavy"
 
 
+@data_kind("summary_statistic")
 @validate_call
 def plot_counts_vs_prediction(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],

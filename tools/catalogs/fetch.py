@@ -7,7 +7,7 @@ from typing import Annotated
 import numpy as np
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, ok, param_slug, resolve_outdir
+from ..common import ArtifactResult, data_kind, ok, param_slug, resolve_outdir
 from ..registry import DATASETS
 from .io import HARMONISED, apply_cuts, catalog_keys, load_catalog, read_native, read_table
 
@@ -17,6 +17,7 @@ DatasetArg = Annotated[str, Field(min_length=1, description=(
 OutArg = Annotated[str, Field(min_length=1, description="Directory for output files (created if missing).")]
 
 
+@data_kind("catalog")
 @validate_call
 def fetch_cluster_catalog(
     output_dir: OutArg,
@@ -59,6 +60,7 @@ def fetch_cluster_catalog(
     )
 
 
+@data_kind("catalog")
 @validate_call
 def describe_catalog_columns(
     dataset: DatasetArg,
@@ -89,6 +91,7 @@ def describe_catalog_columns(
               citation=meta["citation"])
 
 
+@data_kind("summary_statistic")
 @validate_call
 def compute_cluster_counts(
     output_dir: OutArg,
@@ -129,6 +132,7 @@ def compute_cluster_counts(
         nm = np.array([(mm >= t).sum() for t in m_grid])
         for i, n in enumerate(nz):
             nz_rows.append({"survey": label, "z_lo": z_edges[i], "z_hi": z_edges[i + 1], "N": int(n),
+                            "N_poisson_err": float(np.sqrt(max(n, 1))),
                             "N_per_deg2": n / area if (area and normalise_by_area) else np.nan})
         for t, n in zip(m_grid, nm, strict=True):
             nm_rows.append({"survey": label, "M500_min_1e14": t, "N_gt_M": int(n),

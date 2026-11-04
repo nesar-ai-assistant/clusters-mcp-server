@@ -29,6 +29,26 @@ The wrapper is derived from `desc_mcp_server` (HEP-KE pattern, with IRI dispatch
   docs/CONVENTIONS.md     this file (copied verbatim; per-server notes go in docs/SERVER_NOTES.md)
 ```
 
+## Kinds of data (the servers exist so analyses can start from catalogs and summary statistics)
+| `data_kind` | what | examples | role in hep-genesis analyses |
+|---|---|---|---|
+| `catalog` | object-level data | galaxy & cluster catalogs, SN light curves / light-curve fits, shear catalogs, CMB maps | primary input |
+| `summary_statistic` | measurements reduced from catalogs/maps, with covariance | xi+-, C_ell, CMB bandpowers, BAO D/r_d, Hubble diagram mu(z), binned counts, n(z), selection functions | primary input |
+| `published_result` | published inference products | posterior chains, S8/H0/Om constraints, published best-fit theory | comparison only |
+
+Rules:
+- Every tool carries `@data_kind(...)` (from tools.common, above `@validate_call`). Results carry
+  `metadata["data_kind"]`; published-result tools get the description prefix
+  "[Published result - for comparison only]" and `metadata["comparison_only"]`.
+- A fit on summary statistics is the user's own inference: tag it `summary_statistic`. Never let such a tool
+  silently use a published posterior as a prior; priors are explicit user arguments, labelled in the output.
+- Registry products are split `{"catalog": [...], "summary_statistic": [...], "published_result": [...]}`.
+- Every server exposes >= 1 catalog dataset and >= 1 summary-statistic dataset, with tools (contract-tested).
+- Large catalogs/maps download on demand as subsets (sky patch, tile, z range, nside, rows); heavy
+  catalog -> summary-statistic reductions (xi(s), xi+-, C_ell, standardisation) are DISPATCH_KERNELS.
+- Skills build analyses from catalogs/summary statistics and end with a "compare with published results" step.
+- Describe data by what it is (catalog, map, data vector, bandpowers, chain, ...), not by invented level labels.
+
 ## Tool rules
 - Every tool: `@validate_call`, `Annotated[..., Field(description=...)]` args, docstring that says
   WHEN to use it, returns `ArtifactResult` (via `ok(message, files, **metadata)`).

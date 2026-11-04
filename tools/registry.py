@@ -8,6 +8,11 @@ Every catalogue here is a FITS table downloaded on first use; ``columns`` maps
 the native columns onto the harmonised schema of tools.catalogs.io
 (name, ra, dec, z, z_err, M500 [1e14 Msun], M500_err_lo/hi, snr, survey).
 All URLs were verified by download on 2026-11-04.
+
+Products are keyed by data kind:
+  catalog           – per-object catalogs
+  summary_statistic – selection functions, binned counts, stacked WL profiles
+  published_result  – published S8/Om posteriors (comparison only)
 """
 
 SKY_DEG2 = 41252.96
@@ -16,11 +21,16 @@ _CAT = ["fetch_cluster_catalog", "describe_catalog_columns", "plot_mass_redshift
         "compute_cluster_counts", "crossmatch_catalogs", "compare_mass_calibration",
         "predict_cluster_counts_lcdm", "plot_counts_vs_prediction"]
 
+_SELFN = ["fetch_cluster_selection_function", "plot_completeness"]
+
 DATASETS: dict[str, dict] = {
     "psz2": {
         "title": "Planck PSZ2 union catalogue (Planck 2015 XXVII), 1653 SZ detections",
         "survey": "Planck PSZ2",
-        "products": ["catalog"],
+        "products": {
+            "catalog": ["SZ-detected cluster catalog (1653 objects, SNR, MSZ, z)"],
+            "summary_statistic": ["survey completeness C(Y500, theta500) for MMF3-cosmology and union-survey masks"],
+        },
         "access": "download",
         "urls": ["https://irsa.ipac.caltech.edu/data/Planck/release_2/catalogs/HFI_PCCS_SZ-union_R2.08.fits.gz"],
         "file": {"url": "https://irsa.ipac.caltech.edu/data/Planck/release_2/catalogs/HFI_PCCS_SZ-union_R2.08.fits.gz",
@@ -34,12 +44,34 @@ DATASETS: dict[str, dict] = {
                        "no (1-b) correction), only for the 1093 entries with a redshift. REDSHIFT=-1 means no "
                        "redshift. snr = SNR of the union detection. COSMO=True flags the 439 cosmology-sample members.",
         "citation": "Planck Collaboration 2016, A&A 594, A27 (Planck 2015 results XXVII), arXiv:1502.01598",
-        "tools": _CAT,
+        "selection_function": {
+            "files": {
+                "MMF3_cosmology": {
+                    "url": "https://irsa.ipac.caltech.edu/data/Planck/release_2/catalogs/HFI_PCCS_SZ-selfunc-MMF3-cosmolog_R2.08.fits",
+                    "size_bytes": 402773760,
+                    "note": "65% sky cosmology mask, MMF3 pipeline. 403 MB: HDU 0 = Nside-2048 HEALPix noise map, tail HDUs = completeness(Y500, theta500, SNR_cut).",
+                },
+                "union_survey": {
+                    "url": "https://irsa.ipac.caltech.edu/data/Planck/release_2/catalogs/HFI_PCCS_SZ-selfunc-union-survey_R2.08.fits",
+                    "size_bytes": 402773760,
+                    "note": "83.7% sky survey mask, union pipeline.",
+                },
+            },
+            "completeness_shape": "(12 SNR_cuts, 32 theta500 bins, 30 Y500 bins)",
+            "citation": "Planck 2015 results XXVII (arXiv:1502.01598), section 2 & Appendix A",
+        },
+        "tools": _CAT + _SELFN,
     },
     "spt_sz": {
         "title": "SPT-SZ 2500 deg^2 cluster catalogue, Bocquet+2019 masses (677 candidates, xi>4.5)",
         "survey": "SPT-SZ",
-        "products": ["catalog"],
+        "products": {
+            "catalog": ["SZ-detected cluster catalog (677 candidates, xi, M500c, z)"],
+            "summary_statistic": [
+                "field-by-field survey areas and noise corrections (19 fields, Bocquet+19)",
+                "Megacam/HST weak-lensing shear profiles for 32 clusters (Dietrich+19, Schrabback+18)",
+            ],
+        },
         "access": "download",
         "urls": ["https://pole.uchicago.edu/public/data/sptsz-clusters/2500d_cluster_sample_Bocquet19.fits"],
         "file": {"url": "https://pole.uchicago.edu/public/data/sptsz-clusters/2500d_cluster_sample_Bocquet19.fits",
@@ -54,12 +86,31 @@ DATASETS: dict[str, dict] = {
                        "(REDSHIFT_LIMIT gives lower limits for some).",
         "citation": "Bleem et al. 2015, ApJS 216, 27 (arXiv:1409.0850); Bocquet et al. 2019, ApJ 878, 55 "
                     "(arXiv:1812.01679)",
-        "tools": _CAT,
+        "wl_data": {
+            "url": "https://pole.uchicago.edu/public/data/sptsz-clusters/SPT_SZ_cluster_likelihood-0.0.tar.gz",
+            "subdir": "spt",
+            "archive_member_prefix": "SPT_SZ_cluster_likelihood-0.0/data/",
+            "megacam_clusters": 20,
+            "hst_clusters": 13,
+            "columns_megacam": "r_deg, gt (tangential shear), Delta_gt, kbin",
+            "columns_hst": "r_deg, shear, shearerr per radial bin, per magnitude bin",
+            "citation": "Dietrich et al. 2019 (MNRAS 483, 2871); Schrabback et al. 2018 (MNRAS 474, 2635)",
+        },
+        "selection_function": {
+            "type": "field_noise",
+            "n_fields": 19,
+            "note": "SPT-SZ completeness is encoded as field-by-field areas and noise correction factors. "
+                    "The detection probability for a cluster of true significance zeta in field f is "
+                    "P(xi > xi_cut | zeta) = erfc((xi_cut - gamma_f * zeta) / sqrt(2)) / 2, "
+                    "where gamma_f are the field correction factors from SPTcluster_data.py.",
+            "citation": "Bocquet et al. 2019 (arXiv:1812.01679); de Haan et al. 2016 (ApJ 832, 95)",
+        },
+        "tools": _CAT + _SELFN + ["fetch_cluster_wl_profiles"],
     },
     "sptpol_100d": {
         "title": "SPTpol 100 deg^2 cluster catalogue (Huang+2020), 89 candidates xi>4.6",
         "survey": "SPTpol 100d",
-        "products": ["catalog"],
+        "products": {"catalog": ["SZ-detected cluster catalog"]},
         "access": "download",
         "urls": ["https://pole.uchicago.edu/public/data/sptsz-clusters/sptpol100d_catalog_huang19.fits"],
         "file": {"url": "https://pole.uchicago.edu/public/data/sptsz-clusters/sptpol100d_catalog_huang19.fits",
@@ -75,7 +126,7 @@ DATASETS: dict[str, dict] = {
     "spt_ecs": {
         "title": "SPTpol Extended Cluster Survey (SPT-ECS, Bleem+2020), 470 candidates in 2770 deg^2",
         "survey": "SPT-ECS",
-        "products": ["catalog"],
+        "products": {"catalog": ["SZ-detected cluster catalog"]},
         "access": "download",
         "urls": ["https://pole.uchicago.edu/public/data/sptsz-clusters/sptecs_catalog_oct919.fits"],
         "file": {"url": "https://pole.uchicago.edu/public/data/sptsz-clusters/sptecs_catalog_oct919.fits",
@@ -91,7 +142,7 @@ DATASETS: dict[str, dict] = {
     "spt3g_5yr": {
         "title": "SPT-3G Main field 5-year SZ cluster catalogue (Bleem+2026), 8892 candidates xi>4",
         "survey": "SPT-3G",
-        "products": ["catalog"],
+        "products": {"catalog": ["SZ-detected cluster catalog"]},
         "access": "download",
         "urls": ["https://lambda.gsfc.nasa.gov/data/suborbital/SPT/spt_3gsz/spt3g_main_field_5yr_clusters_070126.fits",
                  "https://lambda.gsfc.nasa.gov/product/spt/spt3g_5yr_main_field_cat_get.html"],
@@ -109,7 +160,13 @@ DATASETS: dict[str, dict] = {
     "act_dr6": {
         "title": "ACT DR6 SZ-selected cluster catalogue (ACT-DES-HSC 2025), 10040 clusters SNR>4",
         "survey": "ACT DR6",
-        "products": ["catalog"],
+        "products": {
+            "catalog": ["SZ-detected cluster catalog (10040 objects, fixed_SNR, M500c, z)"],
+            "summary_statistic": [
+                "Q(theta500, z) filter mismatch per tile (QFit.fits, 293 tiles x 55 rows)",
+                "tile noise levels (RMSTab, 13515 rows, areaDeg2 + y0RMS per tile)",
+            ],
+        },
         "access": "download",
         "urls": ["https://lambda.gsfc.nasa.gov/data/suborbital/ACT/actadv_dr6_cluster_cat/DR6_cluster-catalog_v1.0.fits",
                  "https://lambda.gsfc.nasa.gov/product/act/actadv_dr6_szcluster_catalog_get.html"],
@@ -124,12 +181,24 @@ DATASETS: dict[str, dict] = {
                        "A10_M500cUncorr (Arnaud+10, no Eddington correction). snr = SNR optimised over filter scales. "
                        "All 10040 have redshifts; SNR>5 gives a sample 90% complete above 5e14 Msun.",
         "citation": "ACT-DES-HSC Collaboration (Hilton et al.) 2025, arXiv:2507.21459",
-        "tools": _CAT,
+        "selection_function": {
+            "tarball_url": "https://lambda.gsfc.nasa.gov/data/suborbital/ACT/actadv_dr6_cluster_cat/DR6_nemo-products_v1.0.tgz",
+            "tarball_size_bytes": 7412247304,
+            "extracted_files": {
+                "QFit.fits": "Q(theta500Arcmin, z) per tile (293 HDUs, 55 rows each; ~1.7 MB)",
+                "RMSTab_maxFlags0.fits": "tile area + y0 RMS noise (13515 rows; ~250 KB)",
+                "config.yml": "nemo pipeline config: scaling relation params, SNR cut, bias model",
+                "tileAreas.txt": "tile names + areas in deg^2 (293 tiles)",
+            },
+            "note": "The 7.4 GB tarball also contains HEALPix RMS maps and flag masks. "
+                    "Only the small selection-function tables (QFit, RMSTab, config) are fetched by this server.",
+        },
+        "tools": _CAT + _SELFN,
     },
     "erass1": {
         "title": "eROSITA eRASS1 primary cluster catalogue (Bulbul+2024), 12247 optically confirmed groups/clusters",
         "survey": "eRASS1",
-        "products": ["catalog"],
+        "products": {"catalog": ["X-ray selected cluster catalog"]},
         "access": "download",
         "urls": ["https://erosita.mpe.mpg.de/dr1/AllSkySurveyData_dr1/Catalogues_dr1/BulbulE_DR1/"
                  "erass1cl_primary_v3.2.fits.tgz"],
@@ -152,7 +221,10 @@ DATASETS: dict[str, dict] = {
     "erass1_cosmo": {
         "title": "eROSITA eRASS1 cosmology cluster sample (Bulbul+2024), 5259 clusters, ~95% purity",
         "survey": "eRASS1 cosmo",
-        "products": ["catalog"],
+        "products": {
+            "catalog": ["cosmology subsample (5259 clusters)"],
+            "published_result": ["S8 = 0.86 +/- 0.01, Om = 0.29 +0.01/-0.02 (Ghirardini+24, WL-calibrated eRASS1 counts)"],
+        },
         "access": "download",
         "urls": ["https://erosita.mpe.mpg.de/dr1/AllSkySurveyData_dr1/Catalogues_dr1/BulbulE_DR1/"
                  "erass1cl_cosmology_v1.1.fits.tgz"],
@@ -166,6 +238,47 @@ DATASETS: dict[str, dict] = {
                        "they are joined from the primary catalogue on DETUID (5196 of 5259 match; the rest are NaN).",
         "citation": "Bulbul et al. 2024, A&A 685, A106; Ghirardini et al. 2024, A&A 689, A298",
         "tools": _CAT,
+    },
+}
+
+# Published cluster-cosmology constraints (comparison only)
+PUBLISHED_CONSTRAINTS: dict[str, dict] = {
+    "planck_2015_xxiv": {
+        "title": "Planck 2015 cluster counts (Planck Collab. XXIV)",
+        "parameters": {
+            "sigma8_Om0.31_0.3": {"value": 0.774, "error": 0.034, "note": "CCCP+BAO+BBN baseline"},
+            "Om0": {"value": 0.33, "error": 0.03},
+            "sigma8": {"value": 0.76, "error": 0.03},
+        },
+        "citation": "Planck Collaboration 2016, A&A 594, A24 (arXiv:1502.01597)",
+    },
+    "bocquet_2019": {
+        "title": "SPT-SZ + WL + Chandra (Bocquet+19)",
+        "parameters": {
+            "sigma8_Om0.3_0.2": {"value": 0.766, "error": 0.025},
+            "Om0": {"value": 0.276, "error": 0.047},
+            "sigma8": {"value": 0.781, "error": 0.037},
+        },
+        "citation": "Bocquet et al. 2019, ApJ 878, 55 (arXiv:1812.01679)",
+    },
+    "bocquet_2024": {
+        "title": "SPT-SZ+SPTpol+SPT-3G x DES+HST WL (Bocquet+24)",
+        "parameters": {
+            "sigma8_Om0.3_0.25": {"value": 0.805, "error": 0.016},
+            "S8": {"value": 0.795, "error": 0.029},
+            "Om0": {"value": 0.286, "error": 0.032},
+            "sigma8": {"value": 0.817, "error": 0.026},
+        },
+        "citation": "Bocquet et al. 2024, Phys. Rev. D 110, 083510 (arXiv:2401.02075)",
+    },
+    "ghirardini_2024": {
+        "title": "eRASS1 cluster counts (Ghirardini+24)",
+        "parameters": {
+            "S8": {"value": 0.86, "error": 0.01},
+            "Om0": {"value": 0.29, "error_lo": 0.02, "error_hi": 0.01},
+            "sigma8": {"value": 0.88, "error": 0.02},
+        },
+        "citation": "Ghirardini et al. 2024, A&A 689, A298 (arXiv:2402.08458)",
     },
 }
 

@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 import numpy as np
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, mpl, ok, resolve_outdir, save_fig
+from ..common import ArtifactResult, data_kind, mpl, ok, resolve_outdir, save_fig
 from ..registry import SURVEY_COLORS
 from .io import read_table
 
@@ -15,6 +15,7 @@ CatList = Annotated[list[str], Field(min_length=1, description=(
     "Harmonised CSVs from fetch_cluster_catalog and/or dataset keys (full catalogue)."))]
 
 
+@data_kind("catalog")
 @validate_call
 def plot_mass_redshift(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -58,6 +59,7 @@ def plot_mass_redshift(
               note="Masses come from survey-specific scaling relations; see describe_catalog_columns.")
 
 
+@data_kind("catalog")
 @validate_call
 def plot_cluster_sky_map(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],

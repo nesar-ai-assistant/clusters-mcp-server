@@ -7,7 +7,7 @@ from typing import Annotated
 import numpy as np
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, mpl, ok, resolve_outdir, save_fig
+from ..common import ArtifactResult, data_kind, mpl, ok, resolve_outdir, save_fig
 from .io import read_table
 
 TableArg = Annotated[str, Field(min_length=1, description="Harmonised CSV from fetch_cluster_catalog, or a dataset key.")]
@@ -33,6 +33,7 @@ def _mass_ratio_stats(ratio):
             "scatter_ln": float(1.4826 * np.median(np.abs(lr - med))), "std_ln": float(np.std(lr, ddof=1))}
 
 
+@data_kind("catalog")
 @validate_call
 def crossmatch_catalogs(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the matched CSV.")],
@@ -111,6 +112,7 @@ def crossmatch_catalogs(
     )
 
 
+@data_kind("summary_statistic")
 @validate_call
 def compare_mass_calibration(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG / CSV.")],
