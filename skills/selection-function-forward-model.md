@@ -39,8 +39,11 @@ and use it to interpret the LCDM count predictions.
    ```
    fetch_cluster_wl_profiles(output_dir, dataset="spt_sz")
    ```
-   - 19 Megacam tangential shear profiles g_t(r) with errors.
-   - These are the mass calibration inputs for the Bocquet+19 analysis.
+   - 19 measured Megacam reduced-shear profiles g_t(r) with errors (Dietrich+19; real data, not synthetic),
+     plus the source N(z) per cluster.
+   - These are the mass-calibration inputs of the Bocquet+19 analysis.
+   - Masses: `fit_cluster_wl_mass(output_dir)` gives NFW M500c/M200c per cluster. It matches Dietrich+19 to
+     within 1.5% for the 5 published individual masses.
 
 5. **Compare with LCDM prediction**:
    ```
@@ -57,4 +60,4 @@ and use it to interpret the LCDM count predictions.
 - Planck completeness: 32 θ × 30 Y bins, SNR range 4.5–10.0. At q≥6, 80% completeness at Y500 ≈ 4e-4 arcmin².
 - ACT: 293 tiles, 12590 deg² total, median RMS 1.07e-5.
 - SPT: 19 fields, 2459 deg², γ_f = 1.08–1.39.
-- SPT WL: 19 Megacam clusters with 6–20 radial bins each.
+- SPT WL: 19 Megacam clusters, 8 radial bins each (0.85–2.41 Mpc).

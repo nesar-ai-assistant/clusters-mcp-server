@@ -19,6 +19,10 @@ KERNEL_DEPS = ["numpy", "scipy"]
 def _observed(catalog: str, z_edges, m_min):
     from ..catalogs.io import read_table
     df = read_table(catalog)
+    if "richness" in df.columns and df["M500"].isna().all():
+        raise ValueError(f"{catalog}: optical catalogue with richness but no M500 (e.g. des_y6_wazp); the LCDM "
+                         "prediction is in M500 - a mass-richness relation is needed. Use compute_cluster_counts "
+                         "with richness_min for the observed N(z) per deg^2 instead.")
     z, m = df["z"].to_numpy(float), df["M500"].to_numpy(float)
     sel = np.isfinite(z) & np.isfinite(m) & (m >= m_min)
     n, _ = np.histogram(z[sel], bins=z_edges)

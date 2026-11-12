@@ -6,6 +6,10 @@ Harmonised schema (every fetch writes these, in this order):
 ``snr`` is each survey's native detection statistic: xi (SPT), SNR (ACT,
 Planck) or the extent likelihood EXT_LIKE (eROSITA) - NOT directly comparable.
 Missing values (no redshift / no mass) are NaN.
+
+Optical catalogues without a mass (DES Y6 WaZP) keep the same leading columns with
+M500 = NaN and append survey-specific extra columns after ``dataset``
+(registry ``extra_columns``; WaZP: richness, richness_err, z_spec, in_cosmo, cover_frac).
 """
 
 from __future__ import annotations
@@ -117,7 +121,24 @@ def _harmonise(dataset: str) -> pd.DataFrame:
             df[col] = arr
         bad_m = ~((df["M500"] > 0) & (df["M500"] < 100))
         df.loc[bad_m, ["M500", "M500_err_lo", "M500_err_hi"]] = np.nan
-    return df[HARMONISED]
+    extra = meta.get("extra_columns", {})
+    for col, native in extra.items():
+        v = np.asarray(t[native])
+        if v.dtype.kind == "b":
+            df[col] = v.astype(bool)
+        else:
+            df[col] = v.astype(float)
+    if "z_spec" in extra:
+        df.loc[~(df["z_spec"] > 0), "z_spec"] = np.nan
+    return df[HARMONISED + list(extra)]
+
+
+def extra_columns(dataset: str) -> list[str]:
+    return list(DATASETS.get(dataset, {}).get("extra_columns", {}))
+
+
+def has_mass(dataset: str | None) -> bool:
+    return not (dataset and DATASETS.get(dataset, {}).get("mass_proxy") == "richness")
 
 
 def load_catalog(dataset: str) -> pd.DataFrame:
@@ -132,8 +153,19 @@ def catalog_keys() -> list[str]:
 
 
 def apply_cuts(df: pd.DataFrame, z_min=None, z_max=None, m_min=None, m_max=None, snr_min=None,
-               require_z=False, require_mass=False) -> pd.DataFrame:
+               require_z=False, require_mass=False, richness_min=None, richness_max=None,
+               in_cosmo=False) -> pd.DataFrame:
     sel = np.ones(len(df), bool)
+    if richness_min is not None or richness_max is not None or in_cosmo:
+        if "richness" not in df.columns:
+            raise ValueError("richness / in_cosmo cuts need an optical catalogue with a richness column "
+                             "(e.g. des_y6_wazp)")
+        if richness_min is not None:
+            sel &= df["richness"].to_numpy(float) >= richness_min
+        if richness_max is not None:
+            sel &= df["richness"].to_numpy(float) <= richness_max
+        if in_cosmo:
+            sel &= df["in_cosmo"].to_numpy(bool)
     if z_min is not None:
         sel &= df["z"].to_numpy() >= z_min
     if z_max is not None:

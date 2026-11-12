@@ -69,7 +69,7 @@ DATASETS: dict[str, dict] = {
             "catalog": ["SZ-detected cluster catalog (677 candidates, xi, M500c, z)"],
             "summary_statistic": [
                 "field-by-field survey areas and noise corrections (19 fields, Bocquet+19)",
-                "Megacam/HST weak-lensing shear profiles for 32 clusters (Dietrich+19, Schrabback+18)",
+                "Megacam (19) + HST (13) weak-lensing shear profiles (Dietrich+19, Schrabback+18) with source N(z)",
             ],
         },
         "access": "download",
@@ -90,11 +90,26 @@ DATASETS: dict[str, dict] = {
             "url": "https://pole.uchicago.edu/public/data/sptsz-clusters/SPT_SZ_cluster_likelihood-0.0.tar.gz",
             "subdir": "spt",
             "archive_member_prefix": "SPT_SZ_cluster_likelihood-0.0/data/",
-            "megacam_clusters": 20,
+            "megacam_clusters": 19,
             "hst_clusters": 13,
-            "columns_megacam": "r_deg, gt (tangential shear), Delta_gt, kbin",
+            "megacam_files": "data/Megacam/<SPT_ID>/<SPT_ID>_shear.txt (8 radial bins) and <SPT_ID>_Nz.txt "
+                             "(source redshift histogram, 200 bins of dz=0.025)",
+            "columns_megacam": "r_deg (weighted mean bin radius, deg), gt (reduced tangential shear, "
+                               "contamination-corrected), Delta gt (1-sigma), kbin (undocumented, see note), "
+                               "unnamed 5th column (source-galaxy count per bin)",
+            "kbin_note": "The release README and code do not define kbin: lensing.py reads only columns 0-2 "
+                         "(np.loadtxt(..., unpack=True) -> shear[0], shear[1], shear[2]) plus the _Nz.txt file. "
+                         "Empirically kbin is ~constant across radius within a cluster (scatter <~0.01; per-cluster "
+                         "means 0.76-0.89) and anti-correlates with the Megacam seeing of Dietrich+19 Table 2 "
+                         "(Pearson r=-0.92 over the 19 clusters), i.e. it is "
+                         "a per-cluster, seeing-dependent quantity such as a mean shear-polarisability / "
+                         "responsivity; it is NOT applied by the official likelihood and must not be used to "
+                         "rescale gt. The 5th column tracks the source density of Dietrich+19 Table 3 "
+                         "(5th column / annulus area in arcmin^2 reproduces n_gal to ~5%, r=0.95), i.e. it is the "
+                         "number of source galaxies per bin.",
             "columns_hst": "r_deg, shear, shearerr per radial bin, per magnitude bin",
-            "citation": "Dietrich et al. 2019 (MNRAS 483, 2871); Schrabback et al. 2018 (MNRAS 474, 2635)",
+            "citation": "Dietrich et al. 2019, MNRAS 483, 2871 (arXiv:1711.05344, DOI 10.1093/mnras/sty3088); "
+                        "Schrabback et al. 2018 (MNRAS 474, 2635); likelihood code: Bocquet et al. 2019",
         },
         "selection_function": {
             "type": "field_noise",
@@ -105,7 +120,7 @@ DATASETS: dict[str, dict] = {
                     "where gamma_f are the field correction factors from SPTcluster_data.py.",
             "citation": "Bocquet et al. 2019 (arXiv:1812.01679); de Haan et al. 2016 (ApJ 832, 95)",
         },
-        "tools": _CAT + _SELFN + ["fetch_cluster_wl_profiles"],
+        "tools": _CAT + _SELFN + ["fetch_cluster_wl_profiles", "fit_cluster_wl_mass"],
     },
     "sptpol_100d": {
         "title": "SPTpol 100 deg^2 cluster catalogue (Huang+2020), 89 candidates xi>4.6",
@@ -239,6 +254,68 @@ DATASETS: dict[str, dict] = {
         "citation": "Bulbul et al. 2024, A&A 685, A106; Ghirardini et al. 2024, A&A 689, A298",
         "tools": _CAT,
     },
+    "des_y6_wazp": {
+        "title": "DES Y6 WaZP optical cluster catalogue (Benoist+2025), 416947 clusters NGALS>=5 in 4545 deg^2",
+        "survey": "DES Y6 WaZP",
+        "products": {
+            "catalog": [
+                "optically selected cluster catalog (416947 objects; RA, Dec, z_phot, richness NGALS, SNR)",
+                "cluster members (13.1 M rows, 1.05 GB; fetched only with include_members=True)",
+            ],
+            "summary_statistic": [
+                "HEALPix footprint (Nside 4096 NESTED, DETFRAC coverage fraction + ZMAX depth per pixel): "
+                "effective area 4544.7 deg^2 and area(z) for counts per deg^2",
+            ],
+        },
+        "access": "download",
+        "urls": ["https://desdr-server.ncsa.illinois.edu/despublic/y6a2_files/y6_cluster_wazp/"],
+        "file": {"url": "https://desdr-server.ncsa.illinois.edu/despublic/y6a2_files/y6_cluster_wazp/"
+                        "y6a2_dnf_wazp_v5.0.12.6801_clusters.fits", "subdir": "des", "size_bytes": 79646400},
+        "n_rows": 416947,
+        "area_deg2": 4544.7,
+        "area_note": "sum(DETFRAC) x pixel area of the Nside-4096 footprint (22,483,619 pixels, 4607.0 deg^2 "
+                     "unweighted); matches the 4,545 deg^2 quoted by Benoist+25. Above z~0.7 the area where "
+                     "richness is complete (pixel ZMAX > z) shrinks: see compute_wazp_footprint_area.",
+        "mass_proxy": "richness",
+        "columns": {"name": "NAME", "ra": "RA", "dec": "DEC", "z": "ZPHOT", "snr": "SNR",
+                    "richness": "NGALS", "richness_err": "NGALS_UNC"},
+        "extra_columns": {"richness": "NGALS", "richness_err": "NGALS_UNC", "z_spec": "ZSPEC",
+                          "in_cosmo": "IN_COSMO", "cover_frac": "COVER_FRAC_1MPC_WEIGHTED"},
+        "conventions": "Optical (WaZP: Wavelet Z Photometric) detections on DES Y6 DNF photo-z. NO SZ/X-ray mass: "
+                       "M500 is NaN for every row; the mass proxy is the richness NGALS (sum of membership "
+                       "probabilities of members brighter than m*(z)+1.5, Benoist+25), written to the extra "
+                       "columns richness / richness_err. z = ZPHOT (cluster photo-z; ZSPEC>0 for 24447 "
+                       "clusters -> z_spec column). snr = WaZP wavelet detection SNR (>=3), not comparable with "
+                       "SZ xi/SNR. in_cosmo = IN_COSMO flag (301406 clusters with z < local ZMAX: homogeneous "
+                       "richness, use for counts; 33304 have NGALS>=25). cover_frac = NFW-weighted footprint "
+                       "coverage within 1 Mpc. Mass-based tools (m500 cuts, M500-z plot, N(>M), LCDM counts in "
+                       "M500) skip this catalogue; use richness cuts and compute_cluster_counts richness_grid.",
+        "citation": "Benoist et al. 2025, 'The final WaZP galaxy cluster catalog of the Dark Energy Survey and "
+                    "comparison with SZE data', arXiv:2507.05360; WaZP finder: Aguena et al. 2021, MNRAS 502, "
+                    "4435 (arXiv:2008.08711)",
+        "footprint": {
+            "url": "https://desdr-server.ncsa.illinois.edu/despublic/y6a2_files/y6_cluster_wazp/"
+                   "y6a2_dnf_wazp_v5.0.12.6801_footprint.fits",
+            "subdir": "des", "size_bytes": 539614080,
+            "nside": 4096, "ordering": "NESTED", "columns": "PIXEL (HEALPix index), DETFRAC (coverage fraction, "
+                                                            "0.11-1), ZMAX (max z with complete richness)",
+            "n_pixels": 22483619,
+            "effective_area_deg2": 4544.7,
+            "raw_area_deg2": 4607.0,
+            # sum(DETFRAC * pixel_area) over pixels with ZMAX > z, computed from the file on 2026-11-12
+            "area_zmax_gt_deg2": {0.5: 4544.7, 0.6: 4524.3, 0.7: 4420.5, 0.72: 4368.9, 0.74: 4277.6,
+                                  0.76: 4102.3, 0.78: 3763.9, 0.8: 3176.0, 0.82: 2344.4, 0.84: 1412.7,
+                                  0.86: 658.4, 0.88: 247.8, 0.9: 93.0, 0.94: 14.9, 0.96: 3.3, 1.0: 0.0},
+        },
+        "members": {
+            "url": "https://desdr-server.ncsa.illinois.edu/despublic/y6a2_files/y6_cluster_wazp/"
+                   "y6a2_dnf_wazp_v5.0.12.6801_members.fits",
+            "subdir": "des", "size_bytes": 1050670080, "n_rows": 13133244,
+            "columns": "ID, ID_CLUSTER, RA, DEC, ZPHOT, ZSPEC, ZSPEC_SOURCE, PMEM, FLAG_CG, MAG_G..MAG_Y",
+        },
+        "tools": ["fetch_cluster_catalog", "describe_catalog_columns", "plot_cluster_sky_map",
+                  "compute_cluster_counts", "crossmatch_catalogs", "compute_wazp_footprint_area"],
+    },
 }
 
 # Published cluster-cosmology constraints (comparison only)
@@ -284,4 +361,5 @@ PUBLISHED_CONSTRAINTS: dict[str, dict] = {
 
 # survey -> plotting colour (stable across tools)
 SURVEY_COLORS = {"Planck PSZ2": "#1f77b4", "SPT-SZ": "#d62728", "SPTpol 100d": "#9467bd", "SPT-ECS": "#e377c2",
-                 "SPT-3G": "#ff7f0e", "ACT DR6": "#2ca02c", "eRASS1": "#7f7f7f", "eRASS1 cosmo": "#8c564b"}
+                 "SPT-3G": "#ff7f0e", "ACT DR6": "#2ca02c", "eRASS1": "#7f7f7f", "eRASS1 cosmo": "#8c564b",
+                 "DES Y6 WaZP": "#17becf"}

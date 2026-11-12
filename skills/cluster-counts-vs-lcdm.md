@@ -1,6 +1,6 @@
 ---
 name: cluster-counts-vs-lcdm
-description: Compare observed cluster N(z) above a mass threshold with LCDM predictions (Tinker+08 HMF x Eisenstein-Hu P(k)) for SPT-SZ, ACT DR6, SPT-3G, PSZ2 or eRASS1 - obs/pred ratio, per-bin pulls, and a Poisson sigma8 profile; with the completeness/mass-calibration caveats
+description: Compare observed cluster N(z) above a mass threshold with LCDM predictions (Tinker+08 HMF x Eisenstein-Hu P(k)) for SPT-SZ, ACT DR6, SPT-3G, PSZ2 or eRASS1 (DES Y6 WaZP richness counts per deg^2 as the observed side only) - obs/pred ratio, per-bin pulls, and a Poisson sigma8 profile; with the completeness/mass-calibration caveats
 ---
 
 # Cluster counts vs LCDM
@@ -39,7 +39,15 @@ mass scale. Choose thresholds where each sample is close to complete.
 4. **Variations**:
    - Om0=0.315, h=0.674, sigma8=0.811 (Planck 2018) raises N_pred by ~10-20%.
    - `mass_def="200m"` for richness/WL-style masses.
-5. **Report**: threshold, bins, area, N_obs vs N_pred, obs/pred, the pulls, best σ8 with the
+5. **Optical richness counts (DES Y6 WaZP)**: `predict_cluster_counts_lcdm` refuses `des_y6_wazp`.
+   The prediction is in M500, and no mass-richness relation is shipped. You can still build the observed side:
+   - `fetch_cluster_catalog("des_y6_wazp", richness_min=25, in_cosmo_only=true)` gives 33304 clusters.
+   - `compute_cluster_counts([csv], z_edges=[0.1,0.3,0.5,0.7,0.9], richness_min=25)`.
+   - The resulting N_per_deg2 is ≈ 0.62, 2.32, 2.78, 2.26. The last bin uses the 3176 deg² depth-limited area,
+     from `compute_wazp_footprint_area`.
+   - Any LCDM comparison needs an explicit, user-supplied mass-richness relation, labelled as such.
+   - A WaZP × SPT crossmatch gives the matched richness-M500 table needed to build one.
+6. **Report**: threshold, bins, area, N_obs vs N_pred, obs/pred, the pulls, best σ8 with the
    caveat above, and the files. Never present this as a cosmological constraint.
 
 **Dispatch**: `predict_cluster_counts_lcdm` is heavy. Its kernel is `lcdm.kernels.predict_counts`

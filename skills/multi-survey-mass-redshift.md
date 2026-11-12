@@ -18,6 +18,12 @@ plus the numbers that describe it. Use one `output_dir`.
    - `erass1`: 10441
 
    For a cleaner SZ comparison, also fetch `act_dr6` with `snr_min=5` (6521).
+
+   - **Optical (optional):** `des_y6_wazp` with `richness_min=25, in_cosmo_only=true` gives 33304 clusters.
+   - It has NO M500, only richness (NGALS). `plot_mass_redshift` skips it and reports it under `skipped_no_mass`.
+   - Show it on the sky map instead (`color_by="richness"`) and in richness counts.
+   - To place WaZP on the M500 axis, crossmatch it with SPT/ACT to get a richness-vs-M500 table:
+     `crossmatch_catalogs(catalog_a=<wazp CSV>, catalog_b=<spt_sz CSV>, radius_arcmin=2)`.
 2. **Read the conventions** with `describe_catalog_columns(<key>, show_native=false)` for
    each catalogue. Masses are NOT on a common calibration:
    - SPT: xi-mass, WL + X-ray calibrated, at fixed Om=0.3, h=0.7, s8=0.8
@@ -45,5 +51,7 @@ plus the numbers that describe it. Use one `output_dir`.
    eRASS1 13116, PSZ2 34487 deg²) to compare depth at fixed mass.
    - At M500 > 3e14, SPT-3G has the highest surface density.
    - eRASS1 dominates below 1e14.
+   - WaZP richness counts are not mass-threshold counts. Report them separately: N(>richness) per deg²
+     over 4544.7 deg² (depth-limited above z ≈ 0.7).
 6. **Report**: the figure path, the medians table, the mass-floor statements, and the
    explicit caveat that cross-survey mass offsets are 5-25% (quantify with `sz-xray-crossmatch`).

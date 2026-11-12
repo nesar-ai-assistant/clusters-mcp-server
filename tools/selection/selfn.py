@@ -1,4 +1,4 @@
-"""fetch_cluster_selection_function, fetch_cluster_wl_profiles, plot_completeness."""
+"""fetch_cluster_selection_function, fetch_cluster_wl_profiles, fit_cluster_wl_mass, plot_completeness."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ import io
 import json
 import tarfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import numpy as np
 import pandas as pd
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, data_cache_dir, data_kind, fetch_file, mpl, ok, resolve_outdir, save_fig
+from ..common import ArtifactResult, data_cache_dir, data_kind, mpl, ok, resolve_outdir, save_fig
 from ..registry import DATASETS
 
 # ---------------------------------------------------------------------------
@@ -172,39 +172,41 @@ def _spt_field_completeness() -> dict:
 # SPT-SZ weak-lensing shear profiles
 # ---------------------------------------------------------------------------
 def _spt_wl_profiles(output_dir: Path) -> dict:
-    """Extract Megacam tangential shear profiles from the SPT likelihood tarball."""
-    meta = DATASETS["spt_sz"]["wl_data"]
-    tgz = fetch_file(meta["url"], subdir=meta["subdir"], timeout=600)
-    prefix = meta["archive_member_prefix"]
+    """Write the 19 Megacam g_t(r) profiles + source N(z) from the official SPT likelihood release."""
+    from . import wl
 
-    profiles = []
-    files = []
-    with tarfile.open(tgz, "r:gz") as tf:
-        for m in tf.getmembers():
-            if m.name.startswith(prefix + "Megacam/") and m.name.endswith("_shear.txt") and m.isfile():
-                fh = tf.extractfile(m)
-                if fh is None:
-                    continue
-                cluster = m.name.split("/")[-2]
-                data = np.loadtxt(io.BytesIO(fh.read()), comments="#")
-                # columns: r_deg, gt, Delta_gt, kbin, N_gal(optional)
-                csv_path = output_dir / f"spt_wl_{cluster}.csv"
-                df = pd.DataFrame({
-                    "r_deg": data[:, 0],
-                    "gt": data[:, 1],
-                    "gt_err": data[:, 2],
-                })
-                if data.shape[1] > 3:
-                    df["kbin"] = data[:, 3]
-                df.to_csv(csv_path, index=False, float_format="%.6g")
-                files.append(csv_path)
-                profiles.append({
-                    "cluster": cluster,
-                    "n_radial_bins": len(data),
-                    "r_min_deg": float(data[:, 0].min()),
-                    "r_max_deg": float(data[:, 0].max()),
-                    "gt_mean": float(data[:, 1].mean()),
-                })
+    data = wl.read_megacam()
+    zcl = wl.spt_redshifts(list(data))
+    cosmo = wl.FlatLCDM()
+    profiles, files = [], []
+    for cluster, d in data.items():
+        sh, nz = d["shear"], d["nz"]
+        df = pd.DataFrame({"r_deg": sh[:, 0], "gt": sh[:, 1], "gt_err": sh[:, 2]})
+        if sh.shape[1] > 3:
+            df["kbin"] = sh[:, 3]
+        if sh.shape[1] > 4:
+            df["n_src"] = sh[:, 4].astype(int)
+        z = zcl.get(cluster, np.nan)
+        if np.isfinite(z):
+            df["r_mpc"] = sh[:, 0] * np.pi / 180 * float(cosmo.dA(z))
+        csv_path = output_dir / f"spt_wl_{cluster}.csv"
+        df.to_csv(csv_path, index=False, float_format="%.6g")
+        nz_path = output_dir / f"spt_wl_{cluster}_Nz.csv"
+        pd.DataFrame({"z": nz[:, 0], "N": nz[:, 1]}).to_csv(nz_path, index=False, float_format="%.6g")
+        files += [csv_path, nz_path]
+        beta, beta2 = wl.beta_moments(nz, z, cosmo) if np.isfinite(z) else (np.nan, np.nan)
+        snr = float(np.sqrt(np.sum((sh[:, 1] / sh[:, 2]) ** 2)))
+        profiles.append({
+            "cluster": cluster, "z_cluster": z,
+            "profile_csv": csv_path.name, "nz_csv": nz_path.name,
+            "n_bins": int(len(sh)),
+            "r_min_deg": float(sh[:, 0].min()), "r_max_deg": float(sh[:, 0].max()),
+            "r_min_mpc": float(df["r_mpc"].min()) if "r_mpc" in df else np.nan,
+            "r_max_mpc": float(df["r_mpc"].max()) if "r_mpc" in df else np.nan,
+            "gt_detection_snr": snr,
+            "n_source_galaxies": int(nz[:, 1].sum()),
+            "beta_mean": beta, "beta2_mean": beta2,
+        })
     return {"n_clusters": len(profiles), "profiles": profiles, "files": files}
 
 
@@ -304,30 +306,175 @@ def fetch_cluster_selection_function(
         raise ValueError(f"No selection function for dataset={dataset!r}. Use psz2, act_dr6, or spt_sz.")
 
 
+_WL_COLUMNS = {
+    "r_deg": "lensing-weighted mean radius of the bin [deg] from the SZ centre",
+    "gt": "mean reduced tangential shear <g_t> in the bin, corrected for cluster-member contamination "
+          "(Dietrich+19 eq. 18). This is the measured data, not a model.",
+    "gt_err": "1-sigma error on gt (shape noise, Dietrich+19 eq. 17)",
+    "kbin": "4th column of the release file, labelled 'kbin' but undocumented; NOT used by the official "
+            "likelihood - do not rescale gt with it (see kbin_note)",
+    "n_src": "5th (unlabelled) column: number of source galaxies in the bin",
+    "r_mpc": "r_deg converted to physical Mpc with D_A(z_cluster) for flat LCDM Om=0.3, h=0.7",
+}
+
+
 @data_kind("summary_statistic")
 @validate_call
 def fetch_cluster_wl_profiles(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for WL shear profile CSVs.")],
     dataset: Annotated[str, Field(description="Dataset key (currently only spt_sz).")] = "spt_sz",
 ) -> ArtifactResult:
-    """Fetch published weak-lensing tangential shear profiles for clusters with WL follow-up.
+    """Fetch the measured Megacam weak-lensing tangential shear profiles of 19 SPT-SZ clusters (Dietrich+19).
 
-    Currently available: SPT-SZ Megacam shear profiles (20 clusters, Dietrich+19).
-    Each profile gives g_t(r) with errors as a CSV file per cluster.
-    These are real summary-statistic data products that can be used for mass calibration.
+    These are the REAL observed reduced-shear profiles g_t(r) from the official SPT-SZ cluster
+    likelihood release (Bocquet+19), not synthetic data. One CSV per cluster (r_deg, gt, gt_err,
+    kbin, n_src, r_mpc) plus one source-redshift N(z) CSV per cluster (needed for Sigma_crit /
+    <beta>). Use fit_cluster_wl_mass to turn them into M500c/M200c; do not fit to bin means.
     """
+    from . import wl
+
     if dataset != "spt_sz":
         raise ValueError(f"WL profiles not available for {dataset!r}; use spt_sz.")
     out = resolve_outdir(output_dir)
     info = _spt_wl_profiles(out)
     summary_csv = out / "spt_wl_summary.csv"
     pd.DataFrame(info["profiles"]).to_csv(summary_csv, index=False, float_format="%.6g")
+    meta = DATASETS["spt_sz"]["wl_data"]
+    readme = {
+        "what": "Measured Magellan/Megacam weak-lensing reduced tangential shear profiles of 19 SPT-SZ clusters "
+                "(Dietrich et al. 2019, MNRAS 483, 2871) as shipped in the official SPT-SZ cluster likelihood "
+                "release (Bocquet et al. 2019). Real data: 8 radial bins over 0.75-2.5 Mpc per cluster.",
+        "source_url": wl.RELEASE_URL,
+        "archive_files": "SPT_SZ_cluster_likelihood-0.0/data/Megacam/<SPT_ID>/<SPT_ID>_shear.txt and _Nz.txt",
+        "columns": _WL_COLUMNS,
+        "kbin_note": meta["kbin_note"],
+        "source_redshifts": "spt_wl_<SPT_ID>_Nz.csv = source redshift histogram N(z) (dz=0.025) after the "
+                            "colour cuts; <beta>=<D_ls/D_s> and <beta^2> over this N(z) set Sigma_crit = "
+                            "c^2/(4 pi G D_l <beta>) and the reduced-shear correction (as in the release's "
+                            "lensing.py). beta_mean / beta2_mean in the summary reproduce Dietrich+19's table "
+                            "of source properties (Table 3) to <=0.012.",
+        "cluster_redshift": "z_cluster from the SPT-SZ 2500d catalogue (Bocquet+19)",
+        "how_to_get_masses": "fit_cluster_wl_mass (NFW + c(M), reduced shear, Sigma_crit from N(z)). The release's "
+                             "own likelihood additionally applies the WL bias/scatter calibration of "
+                             "WLsimcalib_data.py (Megacam bias 0.938 +- 0.028 from simulations).",
+        "citation": meta["citation"],
+        "profiles": info["profiles"],
+    }
+    readme_path = out / "spt_wl_README.json"
+    readme_path.write_text(json.dumps(readme, indent=1, default=float))
     return ok(
-        f"SPT-SZ WL shear profiles: {info['n_clusters']} Megacam clusters written.",
-        [summary_csv] + [str(f) for f in info["files"]],
+        f"SPT-SZ Megacam WL: {info['n_clusters']} measured g_t(r) profiles (Dietrich+19, official SPT likelihood "
+        f"release) + source N(z) per cluster written; see spt_wl_README.json for columns.",
+        [summary_csv, readme_path] + [str(f) for f in info["files"]],
         n_clusters=info["n_clusters"],
-        clusters=[p["cluster"] for p in info["profiles"]],
+        data_origin="real measured shear profiles (Dietrich+19 Megacam), not simulated",
+        source_url=wl.RELEASE_URL,
+        columns=_WL_COLUMNS, kbin_note=meta["kbin_note"],
+        clusters=[{k: p[k] for k in ("cluster", "z_cluster", "profile_csv", "n_bins", "r_min_mpc", "r_max_mpc",
+                                     "beta_mean")} for p in info["profiles"]],
+        next_step="fit_cluster_wl_mass(output_dir) for NFW M500c/M200c per cluster",
+        citation=meta["citation"],
     )
+
+
+@data_kind("summary_statistic")
+@validate_call
+def fit_cluster_wl_mass(
+    output_dir: Annotated[str, Field(min_length=1, description="Directory for the mass table, JSON and PNG.")],
+    clusters: Annotated[list[str] | None, Field(description=(
+        "SPT IDs (e.g. 'SPT-CLJ0516-5430'); None = all 19 Megacam clusters."))] = None,
+    concentration_model: Annotated[Literal["diemer15", "diemer19", "duffy08"], Field(description=(
+        "c(M,z): diemer15 (Diemer & Kravtsov 2015, used by Dietrich+19 and the SPT likelihood 'DK15'), "
+        "diemer19, or duffy08 (Duffy+08 200c)."))] = "diemer15",
+    r_min_mpc: Annotated[float, Field(ge=0, description=(
+        "Inner fit radius [Mpc]. Profiles span 0.75-2.5 Mpc (Dietrich+19 range); the SPT likelihood uses 0.5-1.5."))] = 0.0,
+    r_max_mpc: Annotated[float, Field(gt=0, description="Outer fit radius [Mpc].")] = 10.0,
+    Om0: Annotated[float, Field(gt=0, lt=1, description="Flat LCDM Omega_m for distances.")] = 0.3,
+    h: Annotated[float, Field(gt=0, lt=1.5, description="Hubble parameter h (masses in Msun, not Msun/h).")] = 0.7,
+) -> ArtifactResult:
+    """NFW weak-lensing mass of SPT-SZ Megacam clusters from their measured g_t(r) profiles.
+
+    Use after (or instead of) fetch_cluster_wl_profiles to get M500c and M200c [1e14 Msun]
+    with 68% intervals per cluster. Model (mirrors the release's lensing.py): NFW with c fixed
+    by c(M,z), Sigma_crit from each cluster's source N(z) via <beta>, reduced shear
+    g = gamma/(1-kappa) (1 + kappa(<beta^2>/<beta>^2 - 1)), Gaussian likelihood, flat prior in
+    ln M200c. Reports the ratio to the Dietrich+19 published masses where available. These
+    are raw NFW masses: no simulation-calibrated WL bias (~0.94) or LSS scatter is applied.
+    """
+    from . import wl
+
+    data = wl.read_megacam()
+    names = clusters or list(data)
+    bad = [n for n in names if n not in data]
+    if bad:
+        raise ValueError(f"No Megacam profile for {bad}; available: {', '.join(data)}")
+    zcl = wl.spt_redshifts(names)
+    cosmo = wl.FlatLCDM(Om0=Om0, h=h)
+    rows, fits_ = [], []
+    for n in names:
+        if n not in zcl:
+            raise ValueError(f"{n}: no redshift in the SPT-SZ catalogue")
+        f = wl.fit_cluster(n, data[n]["shear"], data[n]["nz"], zcl[n], cmodel=concentration_model, cosmo=cosmo,
+                           r_min_mpc=r_min_mpc, r_max_mpc=r_max_mpc)
+        fits_.append(f)
+        row = {k: v for k, v in f.items() if not k.startswith("_")}
+        ref = wl.D19_PUBLISHED_M500.get(n)
+        row["M500c_D19"], row["M500c_D19_err"] = (ref if ref else (np.nan, np.nan))
+        row["ratio_to_D19"] = row["M500c_ml"] / ref[0] if ref else np.nan
+        row["pull_vs_D19"] = (row["M500c_ml"] - ref[0]) / ref[1] if ref else np.nan
+        tab = wl.D19_SOURCE_TABLE.get(n)
+        row["beta_mean_D19"] = tab[0] if tab else np.nan
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    out = resolve_outdir(output_dir)
+    stem = f"spt_wl_masses_{concentration_model}" + (f"_r{r_min_mpc:g}-{r_max_mpc:g}" if (r_min_mpc > 0 or r_max_mpc < 10) else "")
+    csv = out / f"{stem}.csv"
+    df.to_csv(csv, index=False, float_format="%.5g")
+
+    plt = mpl()
+    ncol = min(5, len(fits_))
+    nrow = int(np.ceil(len(fits_) / ncol))
+    fig, axs = plt.subplots(nrow, ncol, figsize=(3.2 * ncol, 2.6 * nrow), squeeze=False)
+    for ax, f in zip(axs.flat, fits_, strict=False):
+        ax.errorbar(f["_r_mpc"], f["_g"], f["_ge"], fmt="o", ms=3, color="k")
+        ax.plot(f["_r_mpc"], f["_model_best"], color="C3")
+        ax.axhline(0, color="0.6", lw=0.6)
+        ax.set_title(f"{f['cluster'][7:]}  M500={f['M500c_ml']:.1f}", fontsize=8)
+        ax.tick_params(labelsize=7)
+    for ax in axs.flat[len(fits_):]:
+        ax.axis("off")
+    fig.supxlabel("R [Mpc]")
+    fig.supylabel(r"reduced tangential shear $g_t$")
+    fig.tight_layout()
+    png = save_fig(fig, out, stem)
+
+    val = df[np.isfinite(df["ratio_to_D19"])]
+    validation = None
+    if len(val):
+        validation = {"n_compared": int(len(val)),
+                      "ratio_ml_over_D19": {r.cluster: round(float(r.ratio_to_D19), 3) for r in val.itertuples()},
+                      "pull_ml_vs_D19": {r.cluster: round(float(r.pull_vs_D19), 3) for r in val.itertuples()},
+                      "median_ratio": float(val["ratio_to_D19"].median()),
+                      "n_within_1sigma": int((val["pull_vs_D19"].abs() < 1).sum()),
+                      "reference": wl.D19_PUBLISHED_NOTE}
+    js = out / f"{stem}.json"
+    js.write_text(json.dumps({"model": {"profile": "NFW", "concentration": concentration_model, "Om0": Om0, "h": h,
+                                        "r_range_mpc": [r_min_mpc, r_max_mpc],
+                                        "estimator": "maximum likelihood + 16/50/84% of the ln M200c posterior"},
+                              "validation_vs_D19": validation,
+                              "clusters": df.to_dict(orient="records")}, indent=1, default=float))
+    msg = f"NFW WL masses for {len(df)} Megacam clusters ({concentration_model})"
+    if validation:
+        msg += (f"; vs Dietrich+19 (n={validation['n_compared']}): median ratio {validation['median_ratio']:.3f}, "
+                f"{validation['n_within_1sigma']}/{validation['n_compared']} within 1 sigma")
+    return ok(msg, [csv, js, png],
+              masses={r.cluster: {"z": round(r.z, 4), "M500c_ml": round(r.M500c_ml, 3),
+                                  "M500c_68": [round(r.M500c_lo, 3), round(r.M500c_hi, 3)],
+                                  "M200c_ml": round(r.M200c_ml, 3)} for r in df.itertuples()},
+              validation_vs_D19=validation, units="1e14 Msun (h=%.2f), M500c/M200c w.r.t. critical density" % h,
+              caveat="Raw NFW masses: no Megacam WL bias (0.938+-0.028, SPT WLsimcalib) or LSS scatter applied; "
+                     "intervals are statistical only.",
+              citation=DATASETS["spt_sz"]["wl_data"]["citation"])
 
 
 @data_kind("summary_statistic")
@@ -356,15 +503,19 @@ def plot_completeness(
         theta = comp["theta500_grid"]
         y = comp["y500_grid"]
 
+        # The Y500 grid is stored in plain arcmin^2 (e.g. 1.1e-4 .. 7.2e-2); plot it unscaled on a log axis.
         fig, ax = plt.subplots(figsize=(8, 5))
-        im = ax.pcolormesh(y * 1e4, theta, cube, cmap="viridis", vmin=0, vmax=1, shading="auto")
-        ax.set(xscale="log", xlabel=r"$Y_{500}$ [$10^{-4}$ arcmin$^2$]",
-               ylabel=r"$\theta_{500}$ [arcmin]",
+        im = ax.pcolormesh(y, theta, cube, cmap="viridis", vmin=0, vmax=1, shading="auto")
+        labels = {"xlabel": r"$Y_{500}$ [arcmin$^2$]", "ylabel": r"$\theta_{500}$ [arcmin]",
+                  "colorbar": "Completeness (detection probability, 0-1)"}
+        ax.set(xscale="log", yscale="log", xlabel=labels["xlabel"], ylabel=labels["ylabel"],
                title=f"Planck PSZ2 completeness ({variant}, q>{snr_grid[snr_idx]:.1f})")
-        fig.colorbar(im, ax=ax, label="Completeness")
-        ax.contour(y * 1e4, theta, cube, levels=[0.2, 0.5, 0.8], colors="w", linewidths=0.8)
+        fig.colorbar(im, ax=ax, label=labels["colorbar"])
+        ax.contour(y, theta, cube, levels=[0.2, 0.5, 0.8], colors="w", linewidths=0.8)
         png = save_fig(fig, out, f"psz2_completeness_{variant}")
-        return ok(f"Planck completeness plot ({variant}, q>{snr_grid[snr_idx]:.1f}).", [png])
+        return ok(f"Planck completeness plot ({variant}, q>{snr_grid[snr_idx]:.1f}).", [png], axis_labels=labels,
+                  y500_range_arcmin2=[float(y.min()), float(y.max())],
+                  theta500_range_arcmin=[float(theta.min()), float(theta.max())])
 
     elif dataset == "act_dr6":
         from astropy.io import fits as pyfits
@@ -376,11 +527,12 @@ def plot_completeness(
         y0 = np.asarray(rms["y0RMS"], float)
         areas = np.asarray(rms["areaDeg2"], float)
 
+        # y0RMS is the RMS of the filtered central Compton-y (dimensionless, ~1e-5); plotted in units of 1e-5.
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
-        ax1.hist(y0 * 1e6, bins=50, weights=areas, edgecolor="k", alpha=0.7)
-        ax1.set(xlabel=r"$y_0$ RMS [$\mu$K-arcmin$^2$]", ylabel="Area [deg$^2$]",
-                title="ACT DR6 tile noise distribution")
-        ax1.axvline(np.median(y0) * 1e6, color="r", ls="--", label=f"median={np.median(y0)*1e6:.1f}")
+        ax1.hist(y0 * 1e5, bins=50, weights=areas, edgecolor="k", alpha=0.7)
+        labels = {"xlabel": r"$\tilde{y}_0$ RMS / $10^{-5}$ (Compton-y, dimensionless)", "ylabel": "Area [deg$^2$]"}
+        ax1.set(xlabel=labels["xlabel"], ylabel=labels["ylabel"], title="ACT DR6 tile noise distribution")
+        ax1.axvline(np.median(y0) * 1e5, color="r", ls="--", label=f"median={np.median(y0):.2e}")
         ax1.legend()
 
         sorted_area = np.sort(areas)[::-1]
@@ -388,7 +540,8 @@ def plot_completeness(
         ax2.set(xlabel="Number of tiles", ylabel="Cumulative area [deg$^2$]",
                 title="ACT DR6 cumulative area")
         png = save_fig(fig, out, "act_dr6_selfunc")
-        return ok("ACT DR6 selection function plot.", [png])
+        return ok("ACT DR6 selection function plot.", [png], axis_labels=labels,
+                  y0_rms_median=float(np.median(y0)))
 
     elif dataset == "spt_sz":
         info = _spt_field_completeness()

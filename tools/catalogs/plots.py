@@ -35,6 +35,10 @@ def plot_mass_redshift(
     fig, ax = plt.subplots(figsize=(8, 5.5))
     stats = {}
     dfs = [read_table(c) for c in catalogs]
+    skipped = [str(d["survey"].iloc[0]) for d in dfs if len(d) and "richness" in d.columns and d["M500"].isna().all()]
+    dfs = [d for d in dfs if not (len(d) and "richness" in d.columns and d["M500"].isna().all())]
+    if not dfs:
+        raise ValueError(f"No catalogue with M500 to plot ({', '.join(skipped)} carry richness, not mass)")
     order = np.argsort([-len(d) for d in dfs])  # big catalogues underneath
     for i in order:
         df = dfs[i]
@@ -55,8 +59,10 @@ def plot_mass_redshift(
     ax.legend(markerscale=3, fontsize=8)
     ax.grid(alpha=0.3)
     png = save_fig(fig, out, stem)
-    return ok(f"M500-z plot of {len(catalogs)} catalogue(s).", [png], per_survey=stats,
-              note="Masses come from survey-specific scaling relations; see describe_catalog_columns.")
+    return ok(f"M500-z plot of {len(dfs)} catalogue(s)." + (f" Skipped (no mass): {', '.join(skipped)}." if skipped else ""),
+              [png], per_survey=stats, skipped_no_mass=skipped,
+              note="Masses come from survey-specific scaling relations; see describe_catalog_columns. "
+                   "Optical catalogues (DES Y6 WaZP) have richness, not M500, and are skipped.")
 
 
 @data_kind("catalog")
@@ -65,7 +71,8 @@ def plot_cluster_sky_map(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
     catalogs: CatList,
     coords: Annotated[Literal["equatorial", "galactic"], Field(description="Coordinate frame of the map.")] = "equatorial",
-    color_by: Annotated[Literal["survey", "z", "M500"], Field(description="Colour points by survey, redshift or mass.")] = "survey",
+    color_by: Annotated[Literal["survey", "z", "M500", "richness"], Field(description=(
+        "Colour points by survey, redshift, mass, or richness (optical catalogues only).")) ] = "survey",
     marker_size: Annotated[float, Field(gt=0, description="Marker size.")] = 3.0,
     stem: Annotated[str, Field(description="Output file stem.")] = "sky_map",
 ) -> ArtifactResult:
@@ -94,8 +101,10 @@ def plot_cluster_sky_map(
         if color_by == "survey":
             ax.scatter(x, y, s=marker_size, color=SURVEY_COLORS.get(label), label=f"{label} ({len(df)})", lw=0, alpha=0.7)
         else:
+            if color_by not in df.columns:
+                raise ValueError(f"{label} has no {color_by!r} column")
             vals = df[color_by].to_numpy(float)
-            sc = ax.scatter(x, y, s=marker_size, c=np.log10(vals) if color_by == "M500" else vals,
+            sc = ax.scatter(x, y, s=marker_size, c=np.log10(vals) if color_by in ("M500", "richness") else vals,
                             cmap="viridis", lw=0, alpha=0.8, label=label)
         counts[label] = int(len(df))
     ticks = np.arange(-150, 181, 30)
@@ -106,7 +115,7 @@ def plot_cluster_sky_map(
         ax.legend(loc="lower right", markerscale=4, fontsize=7, bbox_to_anchor=(1.12, -0.05))
     elif sc is not None:
         fig.colorbar(sc, ax=ax, orientation="horizontal", shrink=0.6, pad=0.06,
-                     label="log10 M500 [1e14 Msun]" if color_by == "M500" else "z")
+                     label={"M500": "log10 M500 [1e14 Msun]", "richness": "log10 richness NGALS"}.get(color_by, "z"))
     ax.set_title(f"Cluster catalogues ({coords})", pad=14)
     png = save_fig(fig, out, f"{stem}_{coords}")
     return ok(f"Sky map ({coords}) of {sum(counts.values())} clusters.", [png], counts=counts, coords=coords)

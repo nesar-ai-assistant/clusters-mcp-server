@@ -50,7 +50,10 @@ def crossmatch_catalogs(
     entry within the radius, made one-to-one (each A keeps its closest B). Typical
     radii: 2' for SZ-SZ (ACT/SPT beams ~1'), 3' for Planck (5' beam, larger
     positional error) or SZ-vs-eROSITA. Output CSV has *_a / *_b columns,
-    sep_arcmin, dz and mass_ratio = M500_b / M500_a.
+    sep_arcmin, dz and mass_ratio = M500_b / M500_a. Optical catalogues (des_y6_wazp)
+    carry richness instead of mass (mass_ratio NaN): pass WaZP (optionally richness-cut) as
+    catalog_a and the SZ catalogue as catalog_b with ~2' radius to get a richness_a-vs-M500_b
+    table (the KD-tree is built on A, every B entry is queried).
     """
     import pandas as pd
     from scipy.spatial import cKDTree
@@ -87,8 +90,10 @@ def crossmatch_catalogs(
     ia = np.array([t[0] for t in sel], int)
     ib = np.array([t[1] for t in sel], int)
     cols = ["name", "ra", "dec", "z", "M500", "M500_err_lo", "M500_err_hi", "snr"]
-    m = pd.concat([a.iloc[ia][cols].reset_index(drop=True).add_suffix("_a"),
-                   b.iloc[ib][cols].reset_index(drop=True).add_suffix("_b")], axis=1)
+    ca = cols + [c for c in ("richness", "richness_err") if c in a.columns]
+    cb = cols + [c for c in ("richness", "richness_err") if c in b.columns]
+    m = pd.concat([a.iloc[ia][ca].reset_index(drop=True).add_suffix("_a"),
+                   b.iloc[ib][cb].reset_index(drop=True).add_suffix("_b")], axis=1)
     m["sep_arcmin"] = [t[2] for t in sel]
     m["dz"] = m["z_b"] - m["z_a"]
     m["mass_ratio"] = m["M500_b"] / m["M500_a"]
